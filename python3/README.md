@@ -11,3 +11,7 @@ Setup:
 Run:
 
     ./env/bin/python go.py
+
+## Problems
+
+This occassionally errors with `concurrent.futures._base.TimeoutError` when calling `get_all_entries`. Maybe querying logs isn't as reliable as I need.

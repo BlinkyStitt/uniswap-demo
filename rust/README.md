@@ -9,3 +9,7 @@ Setup:
 Run:
 
     cargo run
+
+## Problems
+
+https://github.com/tomusdrw/rust-web3/issues/204
