@@ -6,6 +6,7 @@ use web3::types::{Address, FilterBuilder};
 fn main() {
     let mut eloop = tokio_core::reactor::Core::new().unwrap();
     let web3 = web3::Web3::new(
+        // TODO: read the websocket uri from an environment variable. default to localhost
         web3::transports::WebSocket::with_event_loop("ws://127.0.0.1:8546", &eloop.handle())
             .unwrap(),
     );
