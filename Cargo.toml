@@ -1,0 +1,10 @@
+[package]
+name = "rust-web3-uniswap"
+version = "0.1.0"
+authors = ["Bryan Stitt <bryan@stitthappens.com>"]
+edition = "2018"
+
+[dependencies]
+futures = '*'
+tokio-core = '*'
+web3 = '*'
