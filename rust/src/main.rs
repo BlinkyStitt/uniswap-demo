@@ -11,8 +11,8 @@ fn main() {
             .unwrap(),
     );
 
+    // TODO: read these from env vars so we can use a development blockchain easily
     let uniswap_genesis_block = 6_627_917;
-
     let uniswap_factory_address: Address =
         "c0a47dfe034b400b47bdad5fecda2621de6c4d95".parse().unwrap();
 
@@ -46,26 +46,23 @@ fn main() {
         // TODO: subscribe to sync status. if we are behind by more than X blocks, give a notice
 
         // Filter for NewExchange(address,address) event on the uniswap factory contract
-        let factory_filter = FilterBuilder::default()
-            .address(vec![uniswap_factory_contract.address()])
-            .from_block(uniswap_genesis_block.into())
-            .topics(
-                Some(vec![
-                    "0x9d42cb017eb05bd8944ab536a8b35bc68085931dd5f4356489801453923953f9".into(),
-                ]),
-                None,
-                None,
-                None,
-            )
-            .build();
+        let factory_filter_builder = FilterBuilder::default().address(vec![uniswap_factory_contract.address()]);
+            // .topics(
+            //     Some(vec![
+            //         "0x9d42cb017eb05bd8944ab536a8b35bc68085931dd5f4356489801453923953f9".into(),
+            //     ]),
+            //     None,
+            //     None,
+            //     None,
+            // )
 
-        println!("factory_filter: {:#?}", factory_filter);
+        println!("factory_filter defaults: {:#?}", factory_filter_builder.build());
 
         // notifications are send for current events and not for past events
         // TODO: maybe from_block should be the current block number? or just skip it entirely?
-        let factory_future_new = web3
+        let factory_future_new_logs = web3
             .eth_subscribe()
-            .subscribe_logs(factory_filter.clone())
+            .subscribe_logs(factory_filter_builder.build())
             .then(|sub| {
                 sub.unwrap().for_each(|log| {
                     println!("got uniswap factory log from subscription: {:?}", log);
@@ -75,13 +72,14 @@ fn main() {
                     Ok(())
                 })
             })
+            // TODO: proper error handling
             .map_err(|_| ());
 
         // TODO: put a to_block on the filter since we subscribe to new logs with factory_future_new?
         // TODO: fetching historic logs seems to be not working. if it is just very slow, maybe we should step through the exchanges by numeric id
-        let factory_future_past = web3
+        let factory_future_past_logs = web3
             .eth_filter()
-            .create_logs_filter(factory_filter)
+            .create_logs_filter(factory_filter_builder.from_block(uniswap_genesis_block.into()).build())
             .then(|filter| {
                 filter
                     .unwrap()
@@ -92,9 +90,11 @@ fn main() {
                         Ok(())
                     })
             })
+            // TODO: proper error handling
             .map_err(|_| ());
+        // TODO: instead of fetching historic logs
 
-        blocks_future.join3(factory_future_new, factory_future_past)
+        blocks_future.join3(factory_future_new_logs, factory_future_past_logs)
     });
 
     eloop.run(web3_futures).unwrap();
