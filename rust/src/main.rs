@@ -163,28 +163,36 @@ fn main() {
                                         ).and_then(move |token_supply: U256| {
                                             println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", uniswap_token_address, uniswap_exchange_address, token_supply);
 
-                                            if token_supply == 0.into() {
-                                                // if no supply, skip this exchange
-                                                return Ok(());
-                                            }
+                                            // if token_supply == 0.into() {
+                                            //     // if no supply, skip this exchange
+                                            //     // TODO: what kind of error can we actually raise here?
+                                            //     panic!("wip. need to return an Err that doesn't break our futures")
+                                            //     // return Err(());
+                                            // }
 
                                             // TODO: do more here
-                                            // TODO: i'm having trouble fetching the ether balance here. we can't wait because the eloop is in this thead. maybe just refactor this to use a thread
-                                            // let _ether_balance_future = web3.eth().balance(uniswap_exchange_address, None).wait().unwrap();
+                                            // TODO: i'm having trouble fetching the ether balance here. it won't let me return this!
+                                            web3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
+                                                println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}, ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
 
-                                            let _uniswap_exchange_contract =
-                                                contract::Contract::from_json(
-                                                    web3.eth(),
-                                                    uniswap_exchange_address,
-                                                    uniswap_exchange_abi,
-                                                )
-                                                .unwrap();
+                                                let _uniswap_exchange_contract =
+                                                    contract::Contract::from_json(
+                                                        web3.eth(),
+                                                        uniswap_exchange_address,
+                                                        uniswap_exchange_abi,
+                                                    )
+                                                    .unwrap();
 
-                                            Ok(())
+                                                    // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPir
+
+                                                Ok(())
+                                            }).or_else(|err| {
+                                                eprintln!("ether_balance err: {:#?}", err);
+                                                Ok(())
+                                            })
                                         }).or_else(move |err| {
                                             // if we got an error, skip this exchange
-                                            eprintln!("{:#?}.balanceOf({:#?}) failed: {}", uniswap_token_address, uniswap_exchange_address, err);
-
+                                            eprintln!("{:#?}.balanceOf({:#?}) failed: {:#?}", uniswap_token_address, uniswap_exchange_address, err);
                                             Ok(())
                                         })
                                     })
@@ -192,14 +200,15 @@ fn main() {
                     })
                     .collect();
 
+                // TODO: i think we might need a map/map_err here 
                 futures::future::join_all(token_address_futures)
             })
             .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e));
 
         // blocks_future
-        // blocks_future.join3(factory_future_new_logs, factory_future_past_logs)
-        // factory_future_new_logs.join(factory_future_existing_exchanges)
         blocks_future.join3(factory_future_new_logs, factory_future_existing_exchanges)
+        // factory_future_new_logs.join(factory_future_existing_exchanges)
+        // balance_future.join4(blocks_future, factory_future_new_logs, factory_future_existing_exchanges)
     });
 
     if let Err(e) = eloop.run(web3_futures) {
