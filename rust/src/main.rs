@@ -56,18 +56,10 @@ fn main() {
         // TODO: i think the contract has a helper for this
         let factory_filter_builder =
             FilterBuilder::default().address(vec![uniswap_factory_contract.address()]);
-        // .topics(
-        //     Some(vec![
-        //         "0x9d42cb017eb05bd8944ab536a8b35bc68085931dd5f4356489801453923953f9".into(),
-        //     ]),
-        //     None,
-        //     None,
-        //     None,
-        // )
-        println!(
-            "factory_filter defaults: {:#?}",
-            factory_filter_builder.build()
-        );
+        // println!(
+        //     "factory_filter defaults: {:#?}",
+        //     factory_filter_builder.build()
+        // );
 
         // notifications are send for current events and not for past events
         // TODO: maybe from_block should be the current block number? or just skip it entirely?
@@ -104,7 +96,7 @@ fn main() {
         //     // TODO: proper error handling
         //     .map_err(|e| eprintln!("uniswap log err: {:?}", e));
 
-        // TODO: instead of fetching historic logs
+        // instead of fetching historic logs, get the exchanges by querying the contract
         // Get token count. (getTokenCount())
         // For each token in token count, get the address with id "i". (getTokenWithId(id))
         // For each token address, get the exchange address. (getExchange(token))
@@ -163,15 +155,16 @@ fn main() {
                                         ).and_then(move |token_supply: U256| {
                                             println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", uniswap_token_address, uniswap_exchange_address, token_supply);
 
-                                            // if token_supply == 0.into() {
-                                            //     // if no supply, skip this exchange
-                                            //     // TODO: what kind of error can we actually raise here?
-                                            //     panic!("wip. need to return an Err that doesn't break our futures")
-                                            //     // return Err(());
-                                            // }
+                                            if token_supply == 0.into() {
+                                                // if no supply, skip this exchange
+                                                // TODO: what kind of error can we actually raise here?
+                                                // https://tokio.rs/docs/futures/combinators/#returning-from-multiple-branches
+                                                // panic!("what can i return here that won't break the futures?")
+                                                // Box::new(futures::future::err("token supply is 0. Skipping"))
+                                                // futures::future::Either::A(Ok(()))
+                                                // Ok(())
+                                            }
 
-                                            // TODO: do more here
-                                            // TODO: i'm having trouble fetching the ether balance here. it won't let me return this!
                                             web3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
                                                 println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}, ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
 
