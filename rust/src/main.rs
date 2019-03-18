@@ -27,13 +27,12 @@ fn main() {
 
     let web3_futures = web3.eth().accounts().then(|accounts| {
         let accounts = accounts.unwrap();
-        println!("accounts: {:#?}", &accounts);
+        println!("accounts: {:#?}", accounts);
 
         let uniswap_factory_contract = Arc::new(
             contract::Contract::from_json(web3.eth(), uniswap_factory_address, uniswap_factory_abi)
                 .unwrap(),
         );
-
         println!(
             "contract deployed at: {:#?}",
             uniswap_factory_contract.address()
@@ -146,14 +145,6 @@ fn main() {
                                     .and_then(move |uniswap_exchange_address: Address| {
                                         println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}", uniswap_token_address, uniswap_exchange_address);
 
-                                        let _uniswap_exchange_contract =
-                                            contract::Contract::from_json(
-                                                web3.eth(),
-                                                uniswap_exchange_address,
-                                                uniswap_exchange_abi,
-                                            )
-                                            .unwrap();
-
                                         let erc20_contract =
                                             contract::Contract::from_json(
                                                 web3.eth(),
@@ -172,23 +163,26 @@ fn main() {
                                         ).and_then(move |token_supply: U256| {
                                             println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", uniswap_token_address, uniswap_exchange_address, token_supply);
 
-                                            if token_supply == U256::from(0) {
+                                            if token_supply == 0.into() {
+                                                // if no supply, skip this exchange
                                                 return Ok(());
                                             }
 
                                             // TODO: do more here
-                                            // web3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply| {
-                                            //     println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ETH supply: {}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
+                                            // TODO: i'm having trouble fetching the ether balance here. we can't wait because the eloop is in this thead. maybe just refactor this to use a thread
+                                            // let _ether_balance_future = web3.eth().balance(uniswap_exchange_address, None).wait().unwrap();
 
-                                            //     // get the ETH to Token price and create Orders at a few different sizes for it. send the order through a channel
-
-                                            //     // get the token to ETH price and create Orders at a few different sizes for it. send the order through a channel
-
-                                            //     Ok(())
-                                            // })
+                                            let _uniswap_exchange_contract =
+                                                contract::Contract::from_json(
+                                                    web3.eth(),
+                                                    uniswap_exchange_address,
+                                                    uniswap_exchange_abi,
+                                                )
+                                                .unwrap();
 
                                             Ok(())
                                         }).or_else(move |err| {
+                                            // if we got an error, skip this exchange
                                             eprintln!("{:#?}.balanceOf({:#?}) failed: {}", uniswap_token_address, uniswap_exchange_address, err);
 
                                             Ok(())
