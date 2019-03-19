@@ -14,7 +14,6 @@ fn subscribe_new_heads(w3: Arc<web3::Web3<web3::transports::WebSocket>>) -> Box<
         .subscribe_new_heads()
         .and_then(|sub| {
             sub.for_each(|log| {
-                // TODO: wtf. this isn't ever printing anything now...
                 println!("got block log: {:?}", log);
                 Ok(())
             })
