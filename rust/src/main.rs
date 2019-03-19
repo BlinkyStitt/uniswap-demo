@@ -1,7 +1,7 @@
 // TODO: proper error handling. don't unwrap
 // use std::time;
 use std::sync::Arc;
-use futures::future::IntoFuture;
+// use futures::future::IntoFuture;
 use web3::contract;
 use web3::futures::{Future, Stream};
 use web3::types::{Address, FilterBuilder, U256};
@@ -51,7 +51,7 @@ fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, unis
 // TODO: don't return Item = (). Instead, return the Address
 fn get_token_with_id(
     token_index: u64,
-    uniswap_exchange_abi: &[u8],
+    _uniswap_exchange_abi: &[u8],
     uniswap_factory_contract: Arc<contract::Contract<web3::transports::WebSocket>>,
     _w3: Arc<web3::Web3<web3::transports::WebSocket>>,    
 ) -> Box<Future<Item = Address, Error = web3::contract::Error> + Send> {
@@ -64,9 +64,12 @@ fn get_token_with_id(
             None,
             contract::Options::default(),
             None,
-        ))
-        // .and_then(move |uniswap_token_address: Address| {
-            // println!("uniswap_token_address: {:#?}", uniswap_token_address);
+        )
+        .and_then(move |uniswap_token_address: Address| {
+            // TODO: this is never printing
+            println!("uniswap_token_address: {:#?}", uniswap_token_address);
+            Ok(uniswap_token_address)
+        }))
 
     //         uniswap_factory_contract
     //             .query(
@@ -154,16 +157,13 @@ fn query_existing_exchanges(
             println!("uniswap_token_count: {}", uniswap_token_count);
 
             // TODO: range over U256 instead of limited to u64
-            // TODO: i'm not sure we want to collect here, but it is working
+            // TODO: i'm am pretty sure this collect is wrong, but it is printing "querying token index: X" and then continuing on to print block logs
             let _token_addresses: Vec<_> = (1..=uniswap_token_count)
                 .map(|token_index| get_token_with_id(token_index, uniswap_exchange_abi, uniswap_factory_contract.clone(), w3.clone()))
                 .collect();
 
-            // TODO: check for errors in token_addresses
-            // for x in _token_addresses {
-            //     println!("x: {:#?}", x.wait().unwrap());
-            // }
-
+            // TODO: i thought i should return _token_addresses with something done to it here instead, but I can't get that to work
+            // TODO: use futures::stream::futures_unordered?
             Ok(())
         })
         .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e));
