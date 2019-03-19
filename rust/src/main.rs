@@ -47,9 +47,11 @@ fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, unis
 // TODO: don't return Item = (). Instead, return the Address
 fn get_token_with_id(
     token_index: u64,
-    _uniswap_exchange_abi: &[u8],
+    eloop_handle: Arc<tokio_core::reactor::Handle>,
+    erc20_abi: &'static [u8],
+    _uniswap_exchange_abi: &'static [u8],
     uniswap_factory_contract: Arc<contract::Contract<web3::transports::WebSocket>>,
-    _w3: Arc<web3::Web3<web3::transports::WebSocket>>,    
+    w3: Arc<web3::Web3<web3::transports::WebSocket>>,    
 // ) -> Box<Future<Item = Address, Error = web3::contract::Error> + Send> {
 ) -> impl Future<Item = (), Error = ()> {
     // println!("querying token index: {}", token_index);
@@ -76,77 +78,70 @@ fn get_token_with_id(
                 // TODO: flatten this while keeping uniswap_token_address in scope
                 .and_then(move |uniswap_exchange_address: Address| {
                     println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}", token_index, uniswap_token_address, uniswap_exchange_address);
-                    // TODO: do more here
+
+                    let erc20_contract =
+                        contract::Contract::from_json(
+                            w3.eth(),
+                            uniswap_token_address,
+                            erc20_abi,
+                        )
+                        .unwrap();
+
+                    // check the reserves so we can pick valid order sizes
+                    let another_future = erc20_contract.query(
+                        "balanceOf",
+                        (uniswap_exchange_address, ),
+                        None,
+                        contract::Options::default(),
+                        None,
+                    ).and_then(move |token_supply: U256| {
+                        println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", token_index, uniswap_token_address, uniswap_exchange_address, token_supply);
+
+                    //     if token_supply == 0.into() {
+                    //         // if no supply, skip this exchange
+                    //         // TODO: what kind of error can we actually raise here?
+                    //         // https://tokio.rs/docs/futures/combinators/#returning-from-multiple-branches
+                    //         // panic!("what can i return here that won't break the futures?")
+                    //         // Box::new(futures::future::err("token supply is 0. Skipping"))
+                    //         // futures::future::Either::A(Ok(()))
+                    //         // Ok(())
+                    //     }
+
+                    //     w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
+                    //         println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}, ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
+
+                    //         let _uniswap_exchange_contract =
+                    //             contract::Contract::from_json(
+                    //                 w3.eth(),
+                    //                 uniswap_exchange_address,
+                    //                 uniswap_exchange_abi,
+                    //             )
+                    //             .unwrap();
+
+                    //             // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPir
+
+                    //         Ok(())
+                    //     }).or_else(|err| {
+                    //         eprintln!("ether_balance err: {:#?}", err);
+                    //         Ok(())
+                    //     })
+                        Ok(())
+                    })
+                    .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e));
+
+                    // TODO: figure out how to return this future instead of spawning it
+                    eloop_handle.spawn(another_future);
+
                     Ok(())
                 })
-        // .and_then(|foo| {
-            // println!("{}", foo);
-            // Ok(())
-        // })
 
-    //                 let erc20_contract =
-    //                     contract::Contract::from_json(
-    //                         w3.eth(),
-    //                         uniswap_token_address,
-    //                         erc20_abi,
-    //                     )
-    //                     .unwrap();
-
-    //                 // check the reserves so we can pick valid order sizes
-    //                 erc20_contract.query(
-    //                     "balanceOf",
-    //                     (uniswap_exchange_address, ),
-    //                     None,
-    //                     contract::Options::default(),
-    //                     None,
-    //                 ).and_then(move |token_supply: U256| {
-    //                     println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", uniswap_token_address, uniswap_exchange_address, token_supply);
-
-    //                     if token_supply == 0.into() {
-    //                         // if no supply, skip this exchange
-    //                         // TODO: what kind of error can we actually raise here?
-    //                         // https://tokio.rs/docs/futures/combinators/#returning-from-multiple-branches
-    //                         // panic!("what can i return here that won't break the futures?")
-    //                         // Box::new(futures::future::err("token supply is 0. Skipping"))
-    //                         // futures::future::Either::A(Ok(()))
-    //                         // Ok(())
-    //                     }
-
-    //                     w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
-    //                         println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}, ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
-
-    //                         let _uniswap_exchange_contract =
-    //                             contract::Contract::from_json(
-    //                                 w3.eth(),
-    //                                 uniswap_exchange_address,
-    //                                 uniswap_exchange_abi,
-    //                             )
-    //                             .unwrap();
-
-    //                             // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPir
-
-    //                         Ok(())
-    //                     }).or_else(|err| {
-    //                         eprintln!("ether_balance err: {:#?}", err);
-    //                         Ok(())
-    //                     })
-    //                 }).or_else(move |err| {
-    //                     // if we got an error, skip this exchange
-    //                     eprintln!("{:#?}.balanceOf({:#?}) failed: {:#?}", uniswap_token_address, uniswap_exchange_address, err);
-    //                     Ok(())
-    //                 })
-    //             })
-
-            // Ok(())
         })
         .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e))
-
-    // Box::new(the_future)
 }
 
 fn query_existing_exchanges(
     eloop_handle: Arc<tokio_core::reactor::Handle>,
-    _erc20_abi: &[u8],
+    erc20_abi: &'static [u8],
     uniswap_exchange_abi: &'static [u8],
     uniswap_factory_contract: Arc<contract::Contract<web3::transports::WebSocket>>,
     w3: Arc<web3::Web3<web3::transports::WebSocket>>,
@@ -166,7 +161,7 @@ fn query_existing_exchanges(
             // TODO: range over U256 instead of limited to u64
             for token_index in 1..=uniswap_token_count {
                 // TODO: not sure about using eloop_handle here, but it seems to be working. i thought i was supposed to return the futures
-                eloop_handle.spawn(get_token_with_id(token_index, uniswap_exchange_abi, uniswap_factory_contract.clone(), w3.clone()));
+                eloop_handle.spawn(get_token_with_id(token_index, eloop_handle.clone(), erc20_abi, uniswap_exchange_abi, uniswap_factory_contract.clone(), w3.clone()));
             }
 
             Ok(())
