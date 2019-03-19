@@ -159,6 +159,7 @@ fn main() {
                                                 // if no supply, skip this exchange
                                                 // TODO: what kind of error can we actually raise here?
                                                 // https://tokio.rs/docs/futures/combinators/#returning-from-multiple-branches
+                                                // https://stackoverflow.com/questions/53119182/conditionally-chaining-a-rust-future-based-on-initial-future-result
                                                 // panic!("what can i return here that won't break the futures?")
                                                 // Box::new(futures::future::err("token supply is 0. Skipping"))
                                                 // futures::future::Either::A(Ok(()))
