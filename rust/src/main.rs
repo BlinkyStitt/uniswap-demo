@@ -9,7 +9,7 @@ use web3::types::{Address, FilterBuilder, U256};
 // TODO: less strict type on web3
 fn subscribe_new_heads(w3: Arc<web3::Web3<web3::transports::WebSocket>>) -> impl Future<Item = (), Error = ()> {
     println!("subscribing to new heads...");
-    let the_future = w3
+    w3
         .eth_subscribe()
         .subscribe_new_heads()
         .and_then(|sub| {
@@ -18,9 +18,7 @@ fn subscribe_new_heads(w3: Arc<web3::Web3<web3::transports::WebSocket>>) -> impl
                 Ok(())
             })
         })
-        .map_err(|e| eprintln!("block log err: {:#?}", e));
-
-    Box::new(the_future)
+        .map_err(|e| eprintln!("block log err: {:#?}", e))
 }
 
 fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, uniswap_factory_address: Address) -> impl Future<Item = (), Error = ()> {
@@ -30,7 +28,7 @@ fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, unis
         .address(vec![uniswap_factory_address])
         .build();
 
-    let the_future = w3
+    w3
         .eth_subscribe()
         .subscribe_logs(filter)
         .and_then(|sub| {
@@ -43,10 +41,7 @@ fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, unis
             })
         })
         // TODO: proper error handling
-        .map_err(|e| eprintln!("uniswap log err: {:#?}", e));
-
-    // Box::new(the_future)
-    the_future
+        .map_err(|e| eprintln!("uniswap log err: {:#?}", e))
 }
 
 // TODO: don't return Item = (). Instead, return the Address
@@ -59,7 +54,7 @@ fn get_token_with_id(
 ) -> impl Future<Item = (), Error = ()> {
     // println!("querying token index: {}", token_index);
 
-    let the_future = uniswap_factory_contract
+    uniswap_factory_contract
         .query(
             "getTokenWithId",
             (token_index,),
@@ -68,23 +63,26 @@ fn get_token_with_id(
             None,
         )
         .and_then(move |uniswap_token_address: Address| {
-            println!("uniswap_token_address #{}: {:#?}", token_index, uniswap_token_address);
+            println!("#{}: uniswap_token_address: {:#?}", token_index, uniswap_token_address);
 
-            Ok(())
-        })
-        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e));
-
-    //         uniswap_factory_contract
-    //             .query(
-    //                 "getExchange",
-    //                 (uniswap_token_address,),
-    //                 None,
-    //                 contract::Options::default(),
-    //                 None,
-    //             )
-    //             // TODO: flatten this
-    //             .and_then(move |uniswap_exchange_address: Address| {
-    //                 println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}", uniswap_token_address, uniswap_exchange_address);
+            uniswap_factory_contract
+                .query(
+                    "getExchange",
+                    (uniswap_token_address,),
+                    None,
+                    contract::Options::default(),
+                    None,
+                )
+                // TODO: flatten this while keeping uniswap_token_address in scope
+                .and_then(move |uniswap_exchange_address: Address| {
+                    println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}", token_index, uniswap_token_address, uniswap_exchange_address);
+                    // TODO: do more here
+                    Ok(())
+                })
+        // .and_then(|foo| {
+            // println!("{}", foo);
+            // Ok(())
+        // })
 
     //                 let erc20_contract =
     //                     contract::Contract::from_json(
@@ -138,10 +136,12 @@ fn get_token_with_id(
     //                     Ok(())
     //                 })
     //             })
-    //     })
+
+            // Ok(())
+        })
+        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e))
 
     // Box::new(the_future)
-    the_future
 }
 
 fn query_existing_exchanges(
@@ -157,7 +157,7 @@ fn query_existing_exchanges(
     // Get token count. (getTokenCount())
     // For each token in token count, get the address with id "i". (getTokenWithId(id))
     // For each token address, get the exchange address. (getExchange(token))
-    let the_future = uniswap_factory_contract
+    uniswap_factory_contract
         .query("tokenCount", (), None, contract::Options::default(), None)
         .and_then(move |uniswap_token_count: U256| {
             let uniswap_token_count: u64 = uniswap_token_count.as_u64();
@@ -165,18 +165,16 @@ fn query_existing_exchanges(
 
             // TODO: range over U256 instead of limited to u64
             for token_index in 1..=uniswap_token_count {
-                // TODO: not sure about using eloop_handle here, but it seems to be working
+                // TODO: not sure about using eloop_handle here, but it seems to be working. i thought i was supposed to return the futures
                 eloop_handle.spawn(get_token_with_id(token_index, uniswap_exchange_abi, uniswap_factory_contract.clone(), w3.clone()));
             }
 
-            // TODO: i thought i should return _token_addresses with something done to it here instead, but I can't get that to work
-            // TODO: use futures::stream::futures_unordered?
             Ok(())
         })
-        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e));
+        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e))
 
     // Box::new(the_future)
-    the_future
+    // the_future
 }
 
 // fn my_operation(arg: String) -> impl Future<Item = String> {
