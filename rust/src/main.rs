@@ -1,4 +1,5 @@
 // TODO: proper error handling. don't unwrap
+// TODO: proper error logging. some errors should just be warnings
 // use std::time;
 use std::rc::Rc;
 // use futures::future::IntoFuture;
@@ -19,7 +20,7 @@ fn subscribe_new_heads(
                 Ok(())
             })
         })
-        .map_err(|e| eprintln!("block log err: {:#?}", e))
+        .map_err(|e| eprintln!("block log err: {}", e))
 }
 
 fn subscribe_factory_logs(
@@ -44,7 +45,146 @@ fn subscribe_factory_logs(
             })
         })
         // TODO: proper error handling
-        .map_err(|e| eprintln!("uniswap log err: {:#?}", e))
+        .map_err(|e| eprintln!("uniswap log err: {}", e))
+}
+
+fn subscribe_exchange_logs(
+    _eloop_handle: tokio_core::reactor::Handle,
+    uniswap_exchange_address: Address,
+    _uniswap_token_address: Address,
+    w3: Rc<web3::Web3<web3::transports::WebSocket>>,
+) -> impl Future<Item = (), Error = ()> {
+    // println!("subscribing to uniswap exchange {:#?} logs for token {:#?}...", uniswap_exchange_address, uniswap_token_address);
+
+    let filter = FilterBuilder::default()
+        .address(vec![uniswap_exchange_address])
+        .build();
+
+    w3.eth_subscribe()
+        .subscribe_logs(filter)
+        .and_then(|sub| {
+            sub.for_each(|log| {
+                println!("got uniswap exchange log from subscription: {:?}", log);
+
+                // TODO: if sync status is behind, alert that the price is old and return
+
+                // TODO: do we even care about parsing the log? i think we should just recalculate the prices
+
+                Ok(())
+            })
+        })
+        // TODO: proper error handling
+        .map_err(|e| eprintln!("uniswap exchange logs err: {}", e))
+}
+
+fn check_prices(
+    eloop_handle: tokio_core::reactor::Handle,
+    erc20_abi: &'static [u8],
+    uniswap_exchange_abi: &'static [u8],
+    uniswap_exchange_address: Address,
+    uniswap_token_address: Address,
+    w3: Rc<web3::Web3<web3::transports::WebSocket>>,
+) -> impl Future<Item = (), Error = ()> {
+    let erc20_contract =
+        contract::Contract::from_json(w3.eth(), uniswap_token_address, erc20_abi).unwrap();
+
+    // check the reserves so we can pick valid order sizes
+    erc20_contract.query(
+        "balanceOf",
+        (uniswap_exchange_address, ),
+        None,
+        contract::Options::default(),
+        None,
+    ).and_then(move |token_supply: U256| {
+        // println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", token_index, uniswap_token_address, uniswap_exchange_address, token_supply);
+
+        if token_supply == 0.into() {
+            // if no supply, skip this exchange
+            return Ok(());
+        }
+
+        // clone the handle so it can be moved into the ether_balance_future
+        let eloop_handle_clone = eloop_handle.clone();
+
+        let ether_balance_future = w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
+            println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
+
+            // todo; trying to buy the whole balance breaks it. what should we max at?
+            let ether_supply = ether_supply / 10;
+            let token_supply = token_supply / 10;
+
+            // the exchange contract has token and eth in reserves. 
+
+            let uniswap_exchange_contract =
+                contract::Contract::from_json(
+                    w3.eth(),
+                    uniswap_exchange_address,
+                    uniswap_exchange_abi,
+                )
+                .unwrap();
+
+            // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPrice
+            // i think we should use input price functions. either should work, but we should only need one
+            // TODO: do this in a loop so that we can create a bunch of orders instead of just the one
+            let token_to_eth_future = uniswap_exchange_contract
+                .query(
+                    "getTokenToEthOutputPrice",
+                    (ether_supply, ),
+                    None,
+                    contract::Options::default(),
+                    None,
+                )
+                .and_then(move |token_price: U256| {
+                    println!("can buy {} ETH for {} {:#?}", ether_supply, token_price, uniswap_token_address);
+
+                    // TODO: create an order object here and send it through the channel
+
+                    Ok(())
+                }).or_else(|_err| {
+                    // TODO: better errors
+                    // eprintln!("getTokenToEthOutputPrice err: {}", err);
+                    Ok(())
+                });
+            eloop_handle_clone.spawn(token_to_eth_future);
+
+            // todo: spawn this from inside getTokenToEthInputPrice?
+            let eth_to_token_future = uniswap_exchange_contract
+                .query(
+                    "getEthToTokenOutputPrice",
+                    (token_supply, ),
+                    None,
+                    contract::Options::default(),
+                    None,
+                )
+                .and_then(move |ether_price: U256| {
+                    println!("can buy {} {:#?} for {} ETH", token_supply, uniswap_token_address, ether_price);
+
+                    // TODO: create an order object here and send it through the channel
+
+                    Ok(())
+                }).or_else(|_err| {
+                    // TODO: better errors
+                    // eprintln!("getEthToTokenOutputPrice err: {}", err);
+                    Ok(())
+                });
+            eloop_handle_clone.spawn(eth_to_token_future);
+
+            Ok(())
+        }).or_else(|_err| {
+            // TODO: better errors
+            // eprintln!("ether_balance err: {}", err);
+            Ok(())
+        });
+
+        eloop_handle.spawn(ether_balance_future);
+
+        Ok(())
+    })
+    // TODO: better errors
+    .or_else(|_err| {
+        // eprintln!("token balance err: {}", err)
+        Ok(())
+    })
 }
 
 // TODO: don't return Item = (). Instead, return the Address
@@ -82,73 +222,28 @@ fn get_orders_for_id(
                 .and_then(move |uniswap_exchange_address: Address| {
                     // println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}", token_index, uniswap_token_address, uniswap_exchange_address);
 
-                    let erc20_contract =
-                        contract::Contract::from_json(
-                            w3.eth(),
-                            uniswap_token_address,
-                            erc20_abi,
-                        )
-                        .unwrap();
+                    // TODO: after adding this, i'm not seeing any block logs. I've missed block logs before though so maybe its unrelated
+                    eloop_handle.spawn(subscribe_exchange_logs(
+                        eloop_handle.clone(),
+                        uniswap_exchange_address,
+                        uniswap_token_address,
+                        w3.clone(),
+                    ));
 
-                    let eloop_handle_clone = eloop_handle.clone();
-                    let _eloop_handle_clone2 = eloop_handle.clone();  // terible name. needing this makes me think i'm doing something wrong
-
-                    // check the reserves so we can pick valid order sizes
-                    let another_future = erc20_contract.query(
-                        "balanceOf",
-                        (uniswap_exchange_address, ),
-                        None,
-                        contract::Options::default(),
-                        None,
-                    ).and_then(move |token_supply: U256| {
-                        // println!("#{}: uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}", token_index, uniswap_token_address, uniswap_exchange_address, token_supply);
-
-                        if token_supply == 0.into() {
-                            // if no supply, skip this exchange
-                            // TODO: what kind of error can we actually raise here?
-                            // https://tokio.rs/docs/futures/combinators/#returning-from-multiple-branches
-                            // panic!("what can i return here that won't break the futures?")
-                            // Box::new(futures::future::err("token supply is 0. Skipping"))
-                            // futures::future::Either::A(Ok(()))
-                            return Ok(());
-                        }
-
-                        let ether_balance_future = w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
-                            println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
-
-                            let _uniswap_exchange_contract =
-                                contract::Contract::from_json(
-                                    w3.eth(),
-                                    uniswap_exchange_address,
-                                    uniswap_exchange_abi,
-                                )
-                                .unwrap();
-
-                            // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPir
-                            // i think we should use input price functions. either should work, but we should only need one
-                            // let token_to_eth_future = None;
-                            //     let eth_to_token_future = None;
-                            //         let subscribe_exchange_logs_future = None;
-
-                            Ok(())
-                        }).or_else(|err| {
-                            eprintln!("ether_balance err: {:?}", err);
-                            Ok(())
-                        });
-
-                        eloop_handle_clone.spawn(ether_balance_future);
-
-                        Ok(())
-                    })
-                    .map_err(|e| eprintln!("uniswap exchange err: {:?}", e));
-
-                    // TODO: figure out how to return this future instead of spawning it
-                    eloop_handle.spawn(another_future);
+                    eloop_handle.spawn(check_prices(
+                        eloop_handle.clone(),
+                        erc20_abi,
+                        uniswap_exchange_abi,
+                        uniswap_exchange_address,
+                        uniswap_token_address,
+                        w3.clone(),
+                    ));
 
                     Ok(())
                 })
         })
-        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e))
+        // TODO: better errors
+        .map_err(|e| eprintln!("uniswap exchange err: {}", e))
 }
 
 fn query_existing_exchanges(
@@ -185,7 +280,7 @@ fn query_existing_exchanges(
 
             Ok(())
         })
-        .map_err(|e| eprintln!("uniswap exchange err: {:#?}", e))
+        .map_err(|e| eprintln!("uniswap exchange err: {}", e))
 
     // Box::new(the_future)
     // the_future
@@ -251,6 +346,6 @@ fn main() {
         )
     });
     if let Err(_err) = eloop.run(all_futures) {
-        println!("ERROR");
+        eprintln!("ERROR");
     }
 }
