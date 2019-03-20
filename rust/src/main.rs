@@ -1,6 +1,7 @@
 // TODO: proper error handling. don't unwrap
 // TODO: proper error logging. some errors should just be warnings
 // use std::time;
+use env_logger;
 use std::rc::Rc;
 // use futures::future::IntoFuture;
 use web3::contract;
@@ -49,9 +50,11 @@ fn subscribe_factory_logs(
 }
 
 fn subscribe_exchange_logs(
-    _eloop_handle: tokio_core::reactor::Handle,
+    eloop_handle: tokio_core::reactor::Handle,
+    erc20_abi: &'static [u8],
+    uniswap_exchange_abi: &'static [u8],
     uniswap_exchange_address: Address,
-    _uniswap_token_address: Address,
+    uniswap_token_address: Address,
     w3: Rc<web3::Web3<web3::transports::WebSocket>>,
 ) -> impl Future<Item = (), Error = ()> {
     // println!("subscribing to uniswap exchange {:#?} logs for token {:#?}...", uniswap_exchange_address, uniswap_token_address);
@@ -62,13 +65,24 @@ fn subscribe_exchange_logs(
 
     w3.eth_subscribe()
         .subscribe_logs(filter)
-        .and_then(|sub| {
-            sub.for_each(|log| {
+        .and_then(move |sub| {
+            sub.for_each(move |log| {
                 println!("got uniswap exchange log from subscription: {:?}", log);
 
                 // TODO: if sync status is behind, alert that the price is old and return
+                // if log.block_number <  in_sync_block_number: return Ok(());
 
                 // TODO: do we even care about parsing the log? i think we should just recalculate the prices
+
+                let check_prices_future = check_prices(
+                    eloop_handle.clone(),
+                    erc20_abi,
+                    uniswap_exchange_abi,
+                    uniswap_exchange_address,
+                    uniswap_token_address,
+                    w3.clone(),
+                );
+                eloop_handle.spawn(check_prices_future);
 
                 Ok(())
             })
@@ -107,13 +121,12 @@ fn check_prices(
         let eloop_handle_clone = eloop_handle.clone();
 
         let ether_balance_future = w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
-            println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
-
-            // TODO: trying to buy the whole balance breaks it. what should we check for?
-            let ether_supply = ether_supply / 100;
-            let token_supply = token_supply / 100;
-
             // the exchange contract has token and eth in reserves. 
+            // println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
+
+            // TODO: what amounts should we checks?
+            let ether_to_buy = ether_supply / 100;
+            let token_to_buy = token_supply / 100;
 
             let uniswap_exchange_contract =
                 contract::Contract::from_json(
@@ -126,57 +139,54 @@ fn check_prices(
             // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPrice
             // i think we should use input price functions. either should work, but we should only need one
             // TODO: do this in a loop so that we can check multiple prices instead of just 10% of the supply
-            if ether_supply > 0.into() {
+            if ether_to_buy > 0.into() {
                 let token_to_eth_future = uniswap_exchange_contract
                     .query(
                         "getTokenToEthOutputPrice",
-                        (ether_supply, ),
+                        (ether_to_buy, ),
                         None,
                         contract::Options::default(),
                         None,
                     )
                     .and_then(move |token_price: U256| {
-                        println!("can buy {} ETH for {} {:#?}", ether_supply, token_price, uniswap_token_address);
+                        println!("can buy {} ETH for {} {:#?}", ether_to_buy, token_price, uniswap_token_address);
 
                         // TODO: create an order object here and send it through the channel
 
                         Ok(())
-                    }).or_else(|_err| {
+                    }).map_err(|_err| {
                         // TODO: better errors
                         // eprintln!("getTokenToEthOutputPrice err: {}", err);
-                        Ok(())
                     });
                 eloop_handle_clone.spawn(token_to_eth_future);
             }
 
-            if token_supply > 0.into() {
+            if token_to_buy > 0.into() {
                 let eth_to_token_future = uniswap_exchange_contract
                     .query(
                         "getEthToTokenOutputPrice",
-                        (token_supply, ),
+                        (token_to_buy, ),
                         None,
                         contract::Options::default(),
                         None,
                     )
                     .and_then(move |ether_price: U256| {
-                        println!("can buy {} {:#?} for {} ETH", token_supply, uniswap_token_address, ether_price);
+                        println!("can buy {} {:#?} for {} ETH", token_to_buy, uniswap_token_address, ether_price);
 
                         // TODO: create an order object here and send it through the channel
 
                         Ok(())
-                    }).or_else(|_err| {
+                    }).map_err(|_err| {
                         // TODO: better errors
                         // eprintln!("getEthToTokenOutputPrice err: {}", err);
-                        Ok(())
                     });
                 eloop_handle_clone.spawn(eth_to_token_future);
             }
 
             Ok(())
-        }).or_else(|_err| {
+        }).map_err(|_err| {
             // TODO: better errors
             // eprintln!("ether_balance err: {}", err);
-            Ok(())
         });
 
         eloop_handle.spawn(ether_balance_future);
@@ -184,9 +194,8 @@ fn check_prices(
         Ok(())
     })
     // TODO: better errors
-    .or_else(|_err| {
+    .map_err(|_err| {
         // eprintln!("token balance err: {}", err)
-        Ok(())
     })
 }
 
@@ -228,6 +237,8 @@ fn get_orders_for_id(
                     // TODO: after adding this, i'm not seeing any block logs. I've missed block logs before though so maybe its unrelated
                     eloop_handle.spawn(subscribe_exchange_logs(
                         eloop_handle.clone(),
+                        erc20_abi,
+                        uniswap_exchange_abi,
                         uniswap_exchange_address,
                         uniswap_token_address,
                         w3.clone(),
@@ -300,6 +311,8 @@ fn query_existing_exchanges(
 // }
 
 fn main() {
+    env_logger::init();
+
     let mut eloop = tokio_core::reactor::Core::new().unwrap();
     let handle = eloop.handle();
     let w3 = Rc::new(web3::Web3::new(
@@ -321,7 +334,7 @@ fn main() {
     let uniswap_factory_abi: &[u8] = include_bytes!("uniswap_factory.abi");
 
     // TODO: subscribe to sync status instead. if we are behind by more than X blocks, give a notice. except ganache doesn't support that
-    let subscribe_new_heads_future = subscribe_new_heads(w3.clone());
+    let _subscribe_new_heads_future = subscribe_new_heads(w3.clone());
 
     let subscribe_factory_logs_future = subscribe_factory_logs(w3.clone(), uniswap_factory_address);
 
@@ -343,10 +356,11 @@ fn main() {
     );
 
     let all_futures = futures::future::lazy(|| {
-        subscribe_new_heads_future.join3(
-            subscribe_factory_logs_future,
-            query_existing_exchanges_future,
-        )
+        // subscribe_new_heads_future.join3(
+        //     subscribe_factory_logs_future,
+        //     query_existing_exchanges_future,
+        // )
+        subscribe_factory_logs_future.join(query_existing_exchanges_future)
     });
     if let Err(_err) = eloop.run(all_futures) {
         eprintln!("ERROR");
