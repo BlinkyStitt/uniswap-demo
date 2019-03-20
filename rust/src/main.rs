@@ -7,10 +7,11 @@ use web3::futures::{Future, Stream};
 use web3::types::{Address, FilterBuilder, U256};
 
 // TODO: less strict type on web3
-fn subscribe_new_heads(w3: Arc<web3::Web3<web3::transports::WebSocket>>) -> impl Future<Item = (), Error = ()> {
+fn subscribe_new_heads(
+    w3: Arc<web3::Web3<web3::transports::WebSocket>>,
+) -> impl Future<Item = (), Error = ()> {
     println!("subscribing to new heads...");
-    w3
-        .eth_subscribe()
+    w3.eth_subscribe()
         .subscribe_new_heads()
         .and_then(|sub| {
             sub.for_each(|log| {
@@ -21,15 +22,17 @@ fn subscribe_new_heads(w3: Arc<web3::Web3<web3::transports::WebSocket>>) -> impl
         .map_err(|e| eprintln!("block log err: {:#?}", e))
 }
 
-fn subscribe_factory_logs(w3: Arc<web3::Web3<web3::transports::WebSocket>>, uniswap_factory_address: Address) -> impl Future<Item = (), Error = ()> {
+fn subscribe_factory_logs(
+    w3: Arc<web3::Web3<web3::transports::WebSocket>>,
+    uniswap_factory_address: Address,
+) -> impl Future<Item = (), Error = ()> {
     println!("subscribing to uniswap factory logs...");
 
     let filter = FilterBuilder::default()
         .address(vec![uniswap_factory_address])
         .build();
 
-    w3
-        .eth_subscribe()
+    w3.eth_subscribe()
         .subscribe_logs(filter)
         .and_then(|sub| {
             sub.for_each(|log| {
@@ -51,8 +54,8 @@ fn get_token_with_id(
     erc20_abi: &'static [u8],
     _uniswap_exchange_abi: &'static [u8],
     uniswap_factory_contract: Arc<contract::Contract<web3::transports::WebSocket>>,
-    w3: Arc<web3::Web3<web3::transports::WebSocket>>,    
-// ) -> Box<Future<Item = Address, Error = web3::contract::Error> + Send> {
+    w3: Arc<web3::Web3<web3::transports::WebSocket>>,
+    // ) -> Box<Future<Item = Address, Error = web3::contract::Error> + Send> {
 ) -> impl Future<Item = (), Error = ()> {
     // println!("querying token index: {}", token_index);
 
@@ -161,7 +164,14 @@ fn query_existing_exchanges(
             // TODO: range over U256 instead of limited to u64
             for token_index in 1..=uniswap_token_count {
                 // TODO: not sure about using eloop_handle here, but it seems to be working. i thought i was supposed to return the futures
-                eloop_handle.spawn(get_token_with_id(token_index, eloop_handle.clone(), erc20_abi, uniswap_exchange_abi, uniswap_factory_contract.clone(), w3.clone()));
+                eloop_handle.spawn(get_token_with_id(
+                    token_index,
+                    eloop_handle.clone(),
+                    erc20_abi,
+                    uniswap_exchange_abi,
+                    uniswap_factory_contract.clone(),
+                    w3.clone(),
+                ));
             }
 
             Ok(())
@@ -208,16 +218,28 @@ fn main() {
 
     let subscribe_factory_logs_future = subscribe_factory_logs(w3.clone(), uniswap_factory_address);
 
-    let uniswap_factory_contract = Arc::new(contract::Contract::from_json(w3.eth(), uniswap_factory_address, uniswap_factory_abi).unwrap());
+    let uniswap_factory_contract = Arc::new(
+        contract::Contract::from_json(w3.eth(), uniswap_factory_address, uniswap_factory_abi)
+            .unwrap(),
+    );
     println!(
         "contract deployed at: {:#?}",
         uniswap_factory_contract.address()
     );
 
-    let query_existing_exchanges_future = query_existing_exchanges(handle.clone(), erc20_abi, uniswap_exchange_abi, uniswap_factory_contract, w3.clone());
+    let query_existing_exchanges_future = query_existing_exchanges(
+        handle.clone(),
+        erc20_abi,
+        uniswap_exchange_abi,
+        uniswap_factory_contract,
+        w3.clone(),
+    );
 
     let all_futures = futures::future::lazy(|| {
-        subscribe_new_heads_future.join3(subscribe_factory_logs_future, query_existing_exchanges_future)
+        subscribe_new_heads_future.join3(
+            subscribe_factory_logs_future,
+            query_existing_exchanges_future,
+        )
     });
     if let Err(_err) = eloop.run(all_futures) {
         println!("ERROR");
