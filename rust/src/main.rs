@@ -1,5 +1,6 @@
 // TODO: proper error handling. don't unwrap
 // TODO: proper error logging. some errors should just be warnings
+// TODO: pass Rc<Contract> around instead of Addresses?
 // use std::time;
 use env_logger;
 use std::rc::Rc;
@@ -132,10 +133,6 @@ fn check_prices(
                     // the exchange contract has token and eth in reserves.
                     // println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
 
-                    // TODO: what amounts should we checks?
-                    let ether_to_buy = ether_supply / 100;
-                    let token_to_buy = token_supply / 100;
-
                     let uniswap_exchange_contract = contract::Contract::from_json(
                         w3.eth(),
                         uniswap_exchange_address,
@@ -143,9 +140,11 @@ fn check_prices(
                     )
                     .unwrap();
 
-                    // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPrice
-                    // i think we should use input price functions. either should work, but we should only need one
+                    // TODO: what amounts should we checks?
                     // TODO: do this in a loop so that we can check multiple prices instead of just 10% of the supply
+                    let ether_to_buy = ether_supply / 100;
+                    let token_to_buy = token_supply / 100;
+
                     if ether_to_buy > 0.into() {
                         let token_to_eth_future = uniswap_exchange_contract
                             .query(
