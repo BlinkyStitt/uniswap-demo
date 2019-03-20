@@ -25,8 +25,8 @@ fn subscribe_new_heads(
 }
 
 fn subscribe_factory_logs(
-    w3: Rc<web3::Web3<web3::transports::WebSocket>>,
     uniswap_factory_address: Address,
+    w3: Rc<web3::Web3<web3::transports::WebSocket>>,
 ) -> impl Future<Item = (), Error = ()> {
     println!("subscribing to uniswap factory logs...");
 
@@ -39,9 +39,12 @@ fn subscribe_factory_logs(
         .and_then(|sub| {
             sub.for_each(|log| {
                 println!("got uniswap factory log from subscription: {:?}", log);
+
                 // TODO: get the exchange and token addresses out of the log
-                // TODO: subscribe to the exchange logs. if we get any, print the current price on the exchange
-                // TODO: if sync status is behind, alert that the price is old
+
+                // let subscribe_exchange_logs_future = subscribe_exchange_logs(...);
+                // eloop_handle.spawn(subscribe_exchange_logs_future);
+
                 Ok(())
             })
         })
@@ -349,7 +352,7 @@ fn main() {
     // TODO: subscribe to sync status instead. if we are behind by more than X blocks, give a notice. except ganache doesn't support that
     let _subscribe_new_heads_future = subscribe_new_heads(w3.clone());
 
-    let subscribe_factory_logs_future = subscribe_factory_logs(w3.clone(), uniswap_factory_address);
+    let subscribe_factory_logs_future = subscribe_factory_logs(uniswap_factory_address, w3.clone());
 
     let uniswap_factory_contract = Rc::new(
         contract::Contract::from_json(w3.eth(), uniswap_factory_address, uniswap_factory_abi)
