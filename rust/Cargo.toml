@@ -5,6 +5,7 @@ authors = ["Bryan Stitt <bryan@stitthappens.com>"]
 edition = "2018"
 
 [dependencies]
+env_logger = '*'
 futures = '*'
 tokio-core = '*'
 web3 = '*'
