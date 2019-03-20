@@ -109,9 +109,9 @@ fn check_prices(
         let ether_balance_future = w3.eth().balance(uniswap_exchange_address, None).and_then(move |ether_supply: U256| {
             println!("uniswap_token_address: {:#?}; uniswap_exchange_address: {:#?}; token supply: {}; ether_balance: {:#?}", uniswap_token_address, uniswap_exchange_address, token_supply, ether_supply);
 
-            // todo; trying to buy the whole balance breaks it. what should we max at?
-            let ether_supply = ether_supply / 10;
-            let token_supply = token_supply / 10;
+            // TODO: trying to buy the whole balance breaks it. what should we check for?
+            let ether_supply = ether_supply / 100;
+            let token_supply = token_supply / 100;
 
             // the exchange contract has token and eth in reserves. 
 
@@ -125,49 +125,52 @@ fn check_prices(
 
             // TODO: getTokenToEthInputPrice? getTokenToEthOutputPrice? getEthToTokenInputPrice? getEthToTokenOutputPrice
             // i think we should use input price functions. either should work, but we should only need one
-            // TODO: do this in a loop so that we can create a bunch of orders instead of just the one
-            let token_to_eth_future = uniswap_exchange_contract
-                .query(
-                    "getTokenToEthOutputPrice",
-                    (ether_supply, ),
-                    None,
-                    contract::Options::default(),
-                    None,
-                )
-                .and_then(move |token_price: U256| {
-                    println!("can buy {} ETH for {} {:#?}", ether_supply, token_price, uniswap_token_address);
+            // TODO: do this in a loop so that we can check multiple prices instead of just 10% of the supply
+            if ether_supply > 0.into() {
+                let token_to_eth_future = uniswap_exchange_contract
+                    .query(
+                        "getTokenToEthOutputPrice",
+                        (ether_supply, ),
+                        None,
+                        contract::Options::default(),
+                        None,
+                    )
+                    .and_then(move |token_price: U256| {
+                        println!("can buy {} ETH for {} {:#?}", ether_supply, token_price, uniswap_token_address);
 
-                    // TODO: create an order object here and send it through the channel
+                        // TODO: create an order object here and send it through the channel
 
-                    Ok(())
-                }).or_else(|_err| {
-                    // TODO: better errors
-                    // eprintln!("getTokenToEthOutputPrice err: {}", err);
-                    Ok(())
-                });
-            eloop_handle_clone.spawn(token_to_eth_future);
+                        Ok(())
+                    }).or_else(|_err| {
+                        // TODO: better errors
+                        // eprintln!("getTokenToEthOutputPrice err: {}", err);
+                        Ok(())
+                    });
+                eloop_handle_clone.spawn(token_to_eth_future);
+            }
 
-            // todo: spawn this from inside getTokenToEthInputPrice?
-            let eth_to_token_future = uniswap_exchange_contract
-                .query(
-                    "getEthToTokenOutputPrice",
-                    (token_supply, ),
-                    None,
-                    contract::Options::default(),
-                    None,
-                )
-                .and_then(move |ether_price: U256| {
-                    println!("can buy {} {:#?} for {} ETH", token_supply, uniswap_token_address, ether_price);
+            if token_supply > 0.into() {
+                let eth_to_token_future = uniswap_exchange_contract
+                    .query(
+                        "getEthToTokenOutputPrice",
+                        (token_supply, ),
+                        None,
+                        contract::Options::default(),
+                        None,
+                    )
+                    .and_then(move |ether_price: U256| {
+                        println!("can buy {} {:#?} for {} ETH", token_supply, uniswap_token_address, ether_price);
 
-                    // TODO: create an order object here and send it through the channel
+                        // TODO: create an order object here and send it through the channel
 
-                    Ok(())
-                }).or_else(|_err| {
-                    // TODO: better errors
-                    // eprintln!("getEthToTokenOutputPrice err: {}", err);
-                    Ok(())
-                });
-            eloop_handle_clone.spawn(eth_to_token_future);
+                        Ok(())
+                    }).or_else(|_err| {
+                        // TODO: better errors
+                        // eprintln!("getEthToTokenOutputPrice err: {}", err);
+                        Ok(())
+                    });
+                eloop_handle_clone.spawn(eth_to_token_future);
+            }
 
             Ok(())
         }).or_else(|_err| {
@@ -243,7 +246,7 @@ fn get_orders_for_id(
                 })
         })
         // TODO: better errors
-        .map_err(|e| eprintln!("uniswap exchange err: {}", e))
+        .map_err(|e| eprintln!("getTokenWithId err: {}", e))
 }
 
 fn query_existing_exchanges(
